@@ -1,0 +1,424 @@
+<!doctype html>
+<title>FTP Client</title>
+<style>
+    * {
+        outline: none;
+        user-select: none;
+    }
+    body, ::selection {
+        background-color: black;
+        color: lightgray;
+    }
+
+    button, input {
+        background-color: lightgray;
+        border-radius: 5px;
+    }
+    button:not([disabled]) {
+        cursor: pointer;
+    }
+    button:focus {
+        color: gray;
+    }
+
+    div#mainDiv, div#endDiv {
+        display: none;
+    }
+    input#cwdInp {
+        width: 500px;
+    }
+    span.listItem {
+        cursor: pointer;
+    }
+    div.rclickMenu {
+        background-color: black;
+        border: 1px solid lightgray;
+        padding: 5px;
+        border-radius: 5px;
+
+        display: inline-block;
+        position: absolute;
+        left: 0;
+        top: 0;
+    }
+    span.rclickMenuItem {
+        cursor: pointer;
+        display: inline-block;
+        width: 100%;
+    }
+</style>
+
+<div id="connectField">
+    <input id="ipInp" placeholder="Server IP" autofocus><input id="portInp" placeholder="Server port"><br>
+    <input id="userInp" placeholder="Username"><input type="password" id="passwdInp" placeholder="Password"><br>
+    <button id="fillDefaultBtn">Fill empty fields with default values</button><button id="connectBtn">Connect</button><br>
+</div>
+<div id="mainDiv">
+    <button id="disconnectBtn">Disconnect</button> Connected to <span id="connectionMsg"></span>. Server welcome message: <span id="welcomeMsg"></span><br>
+    Current directory: <input id="cwdInp"><hr>
+    <div id="itemsList">
+    </div>
+</div>
+<div id="endDiv">
+    Disconnected! <button id="closeBtn">Close</button>
+</div>
+
+<script src="./webgui/webgui.js"></script>
+<script>
+    for (let input of [ipInp, portInp, userInp, passwdInp]) {
+        input.onmousedown = ev => ev.button == 1 ? toggleShowInp(input) : null
+        input.title = input.placeholder + " (middle-click to toggle visibility)"
+    }
+    function toggleShowInp (el) {
+        if (el.type == "password") el.type = "text"
+        else el.type = "password"
+    }
+
+    fillDefaultBtn.onclick = function () {
+        if (ipInp.value == "") ipInp.value = "127.0.0.1"
+        if (portInp.value == "") portInp.value = "5000"
+        if (userInp.value == "") userInp.value = "anonymous"
+    }
+    connectBtn.onclick = function () {
+        if (ipInp.value != "" && portInp.value != "" && userInp.value != "") {
+            setConnectFieldStatus(false)
+            webgui.sendData({
+                type: "runev",
+                data: 0,
+            })
+        } else alert("Please fill out all the fields. (The password field can be left empty.)")
+    }
+    function setConnectFieldStatus (enabled) {
+        ipInp.disabled = portInp.disabled =
+        userInp.disabled = passwdInp.disabled =
+        fillDefaultBtn.disabled = connectBtn.disabled = !enabled
+    }
+
+    function onConnect () {
+        connectField.style.display = "none"
+        userInp.value = "", passwdInp.value = ""
+
+        connectionMsg.innerText = ipInp.value + ":" + portInp.value
+        mainDiv.style.display = "block"
+        resize()
+    }
+    function onConnectFail () {
+        setConnectFieldStatus(true)
+        alert("Connection failed.")
+    }
+    function resize () {
+        if (mainDiv.style.display == "block") itemsList.style.height = `${(innerHeight - itemsList.offsetTop) - parseInt(getComputedStyle(document.body).marginBottom)}px`
+    }
+    onresize = resize
+    disconnectBtn.onclick = function () {
+        webgui.sendData({
+            type: "runev",
+            data: 1,
+        })
+        mainDiv.style.display = "none"
+        endDiv.style.display = "block"
+    }
+    closeBtn.onclick = function () {
+        close()
+    }
+
+    let lastCwdInpVal = null
+    cwdInp.onfocus = function () {
+        lastCwdInpVal = cwdInp.value
+    }
+    cwdInp.onblur = function () {
+        cwdInp.value = lastCwdInpVal
+        lastCwdInpVal = null
+    }
+    cwdInp.onkeydown = function (ev) {
+        if (ev.key == "Enter") {
+            webgui.sendData({
+                type: "runev",
+                data: 2,
+            })
+            lastCwdInpVal = cwdInp.value
+            cwdInp.blur()
+        } else if (ev.key == "Escape") cwdInp.blur()
+    }
+
+    const byteCountNames = {
+        1: "byte",
+        1000: "kilobyte",
+        1000000: "megabyte",
+        1000000000: "gigabyte",
+    }
+    function byteCountToNamed (count) {
+        count = +count
+        let name = "bytes"
+        for (let val of Object.keys(byteCountNames).toSorted((a, b) => b - a)) {
+            if (count >= val) {
+                name = byteCountNames[val] + (count > val ? "s" : "")
+                let origcount = count
+                count = count / val
+                if (val > 1 && origcount > val) count = count.toFixed(1)
+                break
+            }
+        }
+        return count + " " + name
+    }
+    const permIdNames = {
+        a: "append data to", // File, not used here
+        c: "create files in", // Dir, checked
+        d: "delete", // All, checked
+        e: "enter", // Dir, checked
+        f: "rename", // All, checked
+        l: "list items in", // Dir, not used here
+        m: "create folders in", // Dir, checked
+        p: "delete items in", // Dir, checked
+        r: "read", // File, checked
+        w: "write", // File, not used here
+    }
+    function permIdsToNamed (perms) {
+        let ids = perms.split("")
+        let names = ids.map(val => permIdNames[val] ?? "???")
+        let out = names.join(", ")
+        if (out.length > 0) return out[0].toUpperCase() + out.slice(1)
+        else return "None"
+    }
+    function hasPerm (item, name) {
+        let id = Object.keys(permIdNames).find(val => permIdNames[val] == name)
+        return item[1].perm.indexOf(id) > -1
+    }
+    function sortItems (items) {
+        return items.toSorted((a, b) => a[1].type != b[1].type ? +(b[1].type == "dir") - +(a[1].type == "dir") : a[0].localeCompare(b[0]))
+    }
+
+    let currentDir = null
+    let currentDirItemNames = []
+    function showDirListing (json) {
+        let rawItems = JSON.parse(json)
+        currentDir = rawItems.find(val => val[1].type == "cdir")
+
+        let items = rawItems.filter(val => val[1].type == "file" || val[1].type == "dir")
+        items = sortItems(items)
+        currentDirItemNames = items.map(val => val[0])
+        itemsList.innerHTML = ""
+        for (let item of items) createDirListingLine(item)
+    }
+    function createDirListingLine (item) {
+        let el = document.createElement("span")
+            el.className = "listItem"
+            el.innerText = "[" + (item[1].type == "file" ? "=" : "+") + "] " + item[0]
+            el.title = (item[1].type == "file" ? "Size: " + byteCountToNamed(item[1].size) + ". " : "") + "Permissions: " + permIdsToNamed(item[1].perm) + "."
+            el.onclick = () => onClickItem(el, item)
+            el.ondblclick = () => onDblClickItem(el, item)
+            el.oncontextmenu = ev => { ev.preventDefault(); showRClickMenu(el, item, item[1].type, ev.clientX, ev.clientY) }
+        let br = document.createElement("br")
+        itemsList.append(el, br)
+        return el
+    }
+    function onClickItem (el, item) {
+        if (item[1].type == "dir") {
+            if (hasPerm(item, "enter")) {
+                el.classList.add("changeSend")
+                webgui.sendData({
+                    type: "runev",
+                    data: 3,
+                })
+            } else alert("You do not have permission to enter that folder.")
+        }
+    }
+    async function onDblClickItem (el, item) {
+        if (item[1].type == "file") {
+            if (hasPerm(item, "read")) {
+                el.classList.add("changeSend")
+                let hex = await webgui.askWaitData({
+                    type: "runev",
+                    data: 7,
+                })
+
+                let arr = new Uint8Array(hex.length / 2)
+                for (let i = 0; i < hex.length; i += 2) arr[i / 2] = parseInt(hex.slice(i, i + 2), 16)
+                let name = el.innerText.slice(4)
+                if (window.showSaveFilePicker != undefined) {
+                    let handle = await showSaveFilePicker({
+                        excludeAcceptAllOption: false,
+                        suggestedName: name,
+                        types: [{
+                            description: ":",
+                            accept: {
+                                "*/*": [],
+                            },
+                        }],
+                    })
+                    let writable = await handle.createWritable()
+                    await writable.write(arr)
+                    await writable.close()
+                } else {
+                    let url = URL.createObjectURL(new Blob([arr]))
+
+                    let a = document.createElement("a")
+                    a.download = name
+                    a.href = url
+                    a.click()
+
+                    a.remove()
+                    URL.revokeObjectURL(url)
+                }
+            }
+        } else alert("You do not have permission to read that file.")
+    }
+
+    onclick = function () {
+        if (rclickMenu != null) rclickMenu.remove()
+        rclickMenu_lastX = null, rclickMenu_lastY = null
+    }
+    itemsList.oncontextmenu = function (ev) {
+        ev.preventDefault()
+        showRClickMenu(null, null, "bg", ev.clientX, ev.clientY)
+    }
+    const fileRClickMenuOpts = {
+        "Rename": rclickMenu_rename,
+        "Delete": rclickMenu_delete,
+    }
+    const folderRClickMenuOpts = {
+        "Rename": rclickMenu_rename,
+        "Delete": rclickMenu_delete,
+    }
+    const bgRClickMenuOpts = {
+        "New folder": rclickMenu_newFolder,
+        "Upload file": rclickMenu_uploadFile,
+    }
+    let rclickMenu = null
+    let rclickMenu_lastX = null, rclickMenu_lastY = null
+    function showRClickMenu (mainEl, item, type, x, y) {
+        if (rclickMenu_lastX == x && rclickMenu_lastY == y) return
+        if (rclickMenu != null) rclickMenu.remove()
+        rclickMenu_lastX = x, rclickMenu_lastY = y
+
+        let opts = null
+        if (type == "file") opts = fileRClickMenuOpts
+        else if (type == "dir") opts = folderRClickMenuOpts
+        else if (type == "bg") opts = bgRClickMenuOpts
+
+        rclickMenu = document.createElement("div")
+            rclickMenu.className = "rclickMenu"
+            rclickMenu.style.left = `${x}px`
+            rclickMenu.style.top = `${y}px`
+        for (let opt of Object.keys(opts)) {
+            let el = document.createElement("span")
+                el.className = "rclickMenuItem"
+                el.innerText = opt
+                el.onclick = () => opts[opt](mainEl, item)
+            let br = document.createElement("br")
+            rclickMenu.append(el, br)
+        }
+        document.body.append(rclickMenu)
+    }
+    function rclickMenu_rename (el, item) {
+        if (hasPerm(item, "rename")) {
+            let newName = prompt("New name:", item[0])
+            if (newName != null && newName.trim() != "") {
+                if (currentDirItemNames.map(val => val.toLowerCase()).includes(newName.toLowerCase())) alert("An item with a same/similar name already exists in this location.")
+                else {
+                    el.dataset.newName = newName
+                    el.classList.add("changeSend")
+                    webgui.sendData({
+                        type: "runev",
+                        data: 4,
+                    })
+                }
+            }
+        } else alert("You do not have permission to rename that item.")
+    }
+    function rclickMenu_delete (el, item) {
+        if (hasPerm(currentDir, "delete items in") && hasPerm(item, "delete")) {
+            let sure = confirm(`Are you sure you want to delete "${item[0]}"?`)
+            if (sure) {
+                el.dataset.itemType = item[1].type
+                el.classList.add("changeSend")
+                webgui.sendData({
+                    type: "runev",
+                    data: 5,
+                })
+            }
+        } else alert("You do not have permission to delete that item.")
+    }
+    function rclickMenu_newFolder (el, item) {
+        if (hasPerm(currentDir, "create folders in")) {
+            let name = prompt("New folder name:", "New folder")
+            if (name != null && name.trim() != "") {
+                if (currentDirItemNames.map(val => val.toLowerCase()).includes(name.toLowerCase())) alert("An item with a same/similar name already exists in this location.")
+                else {
+                    let el = createDirListingLine([
+                        name,
+                        {
+                            size: 0,
+                            type: "dir",
+                            perm: "",
+                        }
+                    ])
+                    el.classList.add("changeSend")
+                    webgui.sendData({
+                        type: "runev",
+                        data: 6,
+                    })
+                }
+            }
+        } else alert("You do not have permission to create folders here.")
+    }
+    async function rclickMenu_uploadFile (el, item) {
+        if (hasPerm(currentDir, "create files in")) {
+            let arr = null
+            let name = null
+            if (window.showOpenFilePicker != undefined) {
+                let [handle] = await showOpenFilePicker({
+                    excludeAcceptAllOption: false,
+                    multiple: false,
+                    types: [{
+                        description: ":",
+                        accept: {
+                            "*/*": [],
+                        },
+                    }],
+                })
+                let file = await handle.getFile()
+                arr = new Uint8Array(await file.arrayBuffer())
+                name = file.name
+            } else {
+                let el = document.createElement("input")
+                el.type = "file", el.multiple = false
+                let file = await new Promise(function (resolve) {
+                    el.onchange = function () {
+                        resolve(el.files[0])
+                    }
+                    el.oncancel = function () {
+                        resolve(null)
+                    }
+                    el.click()
+                })
+                el.remove()
+
+                if (file == null) return
+                arr = new Uint8Array(await file.arrayBuffer())
+                name = file.name
+            }
+
+            if (currentDirItemNames.map(val => val.toLowerCase()).includes(name.toLowerCase())) alert("An item with a same/similar name already exists in this location.")
+            else {
+                let hex = ""
+                for (let byte of arr) hex += byte.toString(16).padStart(2, "0")
+                
+                let el = createDirListingLine([
+                    name,
+                    {
+                        size: 0,
+                        type: "file",
+                        perm: "",
+                    }
+                ])
+                el.dataset.hexData = hex
+                el.classList.add("changeSend")
+                webgui.sendData({
+                    type: "runev",
+                    data: 8,
+                })
+            }
+        } else alert("You do not have permission to create files here.")
+    }
+</script>
