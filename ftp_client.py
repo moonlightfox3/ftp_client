@@ -5,22 +5,37 @@ import json
 
 ftp_client_debugmode = False
 if ftp_client_debugmode:
-    print("FTP client is in debug mode!")
+    print("In debug mode!")
 
 async def run(ws): # On WebGUI connection
     await addev(ws, None, connect_ev)
+
+    await addev(ws, None, closeftp_ev)
+    await addev(ws, None, setcwd_ev)
+    await addev(ws, None, movecwd_ev)
+    await addev(ws, None, rnitem_ev)
+    await addev(ws, None, rmitem_ev)
+    await addev(ws, None, mkfolder_ev)
+    await addev(ws, None, getfile_ev)
+    await addev(ws, None, putfile_ev)
 async def stoprun(): # On WebGUI disconnection
     if connected:
         print("Disconnecting from FTP server...")
-        closeftp()
-        print("Disconnected from FTP server.")
+        if closeftp():
+            print("Disconnected from FTP server!")
+        else:
+            print("Failed to disconnect from FTP server.")
+    else:
+        print("Not connected to an FTP server.")
 async def connect_ev(ws):
+    if connected:
+        return
+
     ip = await get_el_val(ws, "#ipInp", "value")
     port = await get_el_val(ws, "#portInp", "value")
     user = await get_el_val(ws, "#userInp", "value")
     passwd = await get_el_val(ws, "#passwdInp", "value")
     if connect(ip, port, user, passwd):
-        await rmev(0)
         await send(ws, {
             type: "select",
             data: "span#welcomeMsg",
@@ -34,15 +49,6 @@ async def connect_ev(ws):
             data: "onConnect()",
         })
         await sendcwd(ws)
-
-        await addev(ws, None, closeftp_ev)
-        await addev(ws, None, setcwd_ev)
-        await addev(ws, None, movecwd_ev)
-        await addev(ws, None, rnitem_ev)
-        await addev(ws, None, rmitem_ev)
-        await addev(ws, None, mkfolder_ev)
-        await addev(ws, None, getfile_ev)
-        await addev(ws, None, putfile_ev)
     else:
         await ask(ws, {
             type: "eval",
@@ -70,8 +76,7 @@ def connect(ip="127.0.0.1", port="5000", user="anonymous", passwd=""):
         return False
     print("Connecting to FTP server...")
     try:
-        if ftp == None:
-            ftp = FTP()
+        ftp = FTP()
         ftp.connect(ip, int(port))
         ftp.login(user, passwd)
         connected = True
@@ -79,6 +84,7 @@ def connect(ip="127.0.0.1", port="5000", user="anonymous", passwd=""):
         return True
     except:
         ftp = None
+        connected = False
         print("Failed to connect to FTP server.")
         return False
 
@@ -151,17 +157,25 @@ def _getfilerun(data):
 def putfile(name, data):
     fp = BytesIO(bytes.fromhex(data))
     ftp.storbinary("STOR " + name, fp)
-def quitfiletransfer():
-    ftp.abort() # Might not always work
+def quitfiletransfer(): # Might not always work
+    ftp.abort()
 def closeftp():
+    global ftp
+    global connected
     try:
         ftp.quit()
+        ftp = None
+        connected = False
         return True
     except:
         return False
 def forcecloseftp():
+    global ftp
+    global connected
     try:
         ftp.close()
+        ftp = None
+        connected = False
         return True
     except:
         return False
@@ -197,8 +211,20 @@ async def getchangeditem(ws):
         data: "innerText",
     }))[4:]
 async def closeftp_ev(ws):
-    closeftp()
+    if not connected:
+        return False
+
+    print("Disconnecting from FTP server...")
+    if closeftp():
+        print("Disconnected from FTP server!")
+        return True
+    else:
+        print("Failed to disconnect from FTP server.")
+        return False
 async def setcwd_ev(ws):
+    if not connected:
+        return
+
     await send(ws, {
         type: "select",
         data: "input#cwdInp",
@@ -215,10 +241,16 @@ async def setcwd_ev(ws):
         })
     await sendcwd(ws)
 async def movecwd_ev(ws):
+    if not connected:
+        return
+
     name = await getchangeditem(ws)
     movecwd(name)
     await sendcwd(ws)
 async def rnitem_ev(ws):
+    if not connected:
+        return
+
     oldname = await getchangeditem(ws)
     newname = (await ask(ws, {
         type: "getval",
@@ -227,6 +259,9 @@ async def rnitem_ev(ws):
     rnitem(oldname, newname)
     await senditems(ws)
 async def rmitem_ev(ws):
+    if not connected:
+        return
+
     name = await getchangeditem(ws)
     itemtype = (await ask(ws, {
         type: "getval",
@@ -238,10 +273,16 @@ async def rmitem_ev(ws):
         rmfolder(name)
     await senditems(ws)
 async def mkfolder_ev(ws):
+    if not connected:
+        return
+
     name = await getchangeditem(ws)
     mkfolder(name)
     await senditems(ws)
 async def getfile_ev(ws):
+    if not connected:
+        return
+
     name = await getchangeditem(ws)
     hex = getfile(name)
     await send(ws, {
@@ -249,6 +290,9 @@ async def getfile_ev(ws):
         data: hex,
     })
 async def putfile_ev(ws):
+    if not connected:
+        return
+
     name = await getchangeditem(ws)
     hexdata = (await ask(ws, {
         type: "getval",

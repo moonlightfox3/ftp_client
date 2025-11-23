@@ -60,7 +60,7 @@
     </div>
 </div>
 <div id="endDiv">
-    Disconnected! <button id="closeBtn">Close</button>
+    Disconnected! <button id="restartBtn">Go to login screen</button><button id="closeBtn">Close</button>
 </div>
 
 <script src="./webgui/webgui.js"></script>
@@ -96,9 +96,11 @@
 
     function onConnect () {
         connectField.style.display = "none"
-        userInp.value = "", passwdInp.value = ""
-
+        setConnectFieldStatus(true)
+        
         connectionMsg.innerText = ipInp.value + ":" + portInp.value
+        ipInp.value = "", portInp.value = "", userInp.value = "", passwdInp.value = ""
+
         mainDiv.style.display = "block"
         resize()
     }
@@ -117,6 +119,10 @@
         })
         mainDiv.style.display = "none"
         endDiv.style.display = "block"
+    }
+    restartBtn.onclick = function () {
+        connectField.style.display = "block"
+        endDiv.style.display = "none"
     }
     closeBtn.onclick = function () {
         close()
