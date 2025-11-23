@@ -55,7 +55,7 @@
 </div>
 <div id="mainDiv">
     <button id="disconnectBtn">Disconnect</button> Connected to <span id="connectionMsg"></span>. Server welcome message: <span id="welcomeMsg"></span><br>
-    Current directory: <input id="cwdInp"><hr>
+    Current directory: <input id="cwdInp"><button id="cwdParentBtn">Go to parent directory</button><hr>
     <div id="itemsList">
     </div>
 </div>
@@ -145,6 +145,19 @@
             lastCwdInpVal = cwdInp.value
             cwdInp.blur()
         } else if (ev.key == "Escape") cwdInp.blur()
+    }
+    cwdParentBtn.onclick = function () {
+        if (cwdInp.value == "/") alert("There is no parent directory.")
+        else {
+            cwdInp.value = cwdInp.value.substring(0, cwdInp.value.lastIndexOf("/"))
+            if (cwdInp.value == "") cwdInp.value = "/"
+            webgui.sendData({
+                type: "runev",
+                data: 2,
+            })
+            lastCwdInpVal = cwdInp.value
+        }
+        cwdParentBtn.blur()
     }
 
     const byteCountNames = {
