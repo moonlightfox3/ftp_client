@@ -110,8 +110,7 @@
     }
     function resize () {
         if (mainDiv.style.display == "block") itemsList.style.height = `${(innerHeight - itemsList.offsetTop) - parseInt(getComputedStyle(document.body).marginBottom)}px`
-    }
-    onresize = resize
+    }; onresize = resize
     disconnectBtn.onclick = function () {
         webgui.sendData({
             type: "runev",
@@ -121,8 +120,9 @@
         endDiv.style.display = "block"
     }
     restartBtn.onclick = function () {
-        connectField.style.display = "block"
         endDiv.style.display = "none"
+        cwdInp.value = ""
+        connectField.style.display = "block"
     }
     closeBtn.onclick = function () {
         close()

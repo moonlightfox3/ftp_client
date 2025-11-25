@@ -166,6 +166,7 @@ def closeftp():
         ftp.quit()
         ftp = None
         connected = False
+        cwd = "/"
         return True
     except:
         return False
@@ -176,6 +177,7 @@ def forcecloseftp():
         ftp.close()
         ftp = None
         connected = False
+        cwd = "/"
         return True
     except:
         return False
